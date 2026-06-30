@@ -1,0 +1,20 @@
+[Unit]
+Description=WhatsApp CLI daemon (Baileys) — archives messages + serves send API
+# __REPO__ and __NODE__ are filled in by install.sh (this file is a template — no machine paths in the repo)
+Documentation=file://__REPO__/README.md
+After=network-online.target
+Wants=network-online.target
+# If WhatsApp logs the device out (daemon exits 1), stop after a few tries instead of looping forever
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=__REPO__
+# __NODE__ is resolved by install.sh (mise shim if present, so it survives node upgrades)
+ExecStart=__NODE__ __REPO__/daemon.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

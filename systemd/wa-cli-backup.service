@@ -1,0 +1,6 @@
+[Unit]
+Description=Backup the WhatsApp CLI archive (SQLite snapshot + media mirror)
+
+[Service]
+Type=oneshot
+ExecStart=__REPO__/backup.sh

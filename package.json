@@ -1,0 +1,23 @@
+{
+  "name": "whatsapp-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Always-on WhatsApp read+send CLI (Baileys) with local SQLite archive + received-media capture",
+  "bin": {
+    "wa": "./wa.mjs"
+  },
+  "scripts": {
+    "daemon": "node daemon.mjs",
+    "login": "node daemon.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "baileys": "6.7.23",
+    "pino": "^10.0.0",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

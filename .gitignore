@@ -1,0 +1,6 @@
+node_modules/
+# data (auth creds, message DB, media) lives in ~/.local/share/wa-cli — never in-repo,
+# but ignore any stray local copies just in case:
+data/
+*.db
+*.db-*
