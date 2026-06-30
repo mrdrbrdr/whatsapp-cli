@@ -38,6 +38,7 @@ and received files aren't lost.
 | `messages.mjs` | Pure live-message parsing helpers (`unwrap`/`extract`/`pickExt`), shared by the daemon and the tests. |
 | `import.mjs` | Ingests WhatsApp "Export Chat" archives (iPhone/Android) into the store. |
 | `test/` | `node --test` suite (`npm test`) — parser units + import/schema/CLI/HTTP-API integration. |
+| `skill/` | A Claude **agent skill** (`SKILL.md`) — copy to `~/.claude/skills/whatsapp/` so an agent learns the commands + anti-ban etiquette. |
 | `backup.sh` | Consistent SQLite snapshot + media mirror → `~/.local/share/wa-cli-backups/`. |
 | `install.sh` | Idempotent installer: links `wa`, links the systemd units, enables services, lingering. Also the migration script. |
 | `systemd/` | Unit **templates** (`__REPO__`/`__NODE__` placeholders); `install.sh` fills in this machine's paths and writes the real units to `~/.config/systemd/user/`. |
@@ -97,9 +98,10 @@ wa tail [who]             # follow new messages live
 
 **Send rate limit (anti-ban):** sends are serialized and paced with a **randomized human-like spacing**
 (base 5s + up to 15s random jitter — never a fixed, bot-detectable interval), and capped at 60/hour.
-The cap is **persisted** (survives daemon restarts) and the pacing/cap hold even under concurrent
-callers. Tune via `WA_CLI_MAX_PER_HOUR` / `WA_CLI_SEND_GAP_MS` / `WA_CLI_SEND_JITTER_MS` on the service;
-a `429` means the cap was hit — back off rather than retrying in a loop.
+Long messages are **auto-split into several human-sized messages** (one copy-pasted wall of text is a
+known ban trigger), sent a few seconds apart. The cap is **persisted** (survives daemon restarts) and
+the pacing/cap hold even under concurrent callers. Tune via `WA_CLI_MAX_PER_HOUR` / `WA_CLI_SEND_GAP_MS`
+/ `WA_CLI_SEND_JITTER_MS` / `WA_CLI_CHUNK_MAX`; a `429` means the cap was hit — back off, don't loop.
 
 `<who>` = `me` · a phone number (`1234567890`) · part of a saved contact/group name (`mom`) · a jid.
 Name matches that are ambiguous list the candidates so you can be specific.
@@ -162,9 +164,13 @@ npm test          # node --test test/*.test.mjs — no extra deps (Node's built-
 
 ## Notes for automation / agents
 
-Built to be driven by an autonomous agent (e.g. a procurement session):
+Built to be driven by an autonomous agent (e.g. a procurement session). **An agent skill is included
+at [`skill/SKILL.md`](skill/SKILL.md)** — copy it to `~/.claude/skills/whatsapp/SKILL.md` so a Claude
+agent auto-discovers how to use `wa` properly.
 
 - **Run `wa doctor` first** to confirm the daemon is connected before relying on it.
+- **Send like a human** — compose a few short messages rather than one long block. The tool auto-splits
+  long messages into chunks, but write naturally; a wall of text is a spam signal.
 - **Reading is free and safe** — `wa read`/`search`/`chats`/`media` are read-only SQLite queries; any
   number of callers can run concurrently. New inbound lands in the archive on its own; poll with
   `wa chats` / `wa search`, or query `messages` for `timestamp >` your last check.

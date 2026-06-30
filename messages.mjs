@@ -46,6 +46,37 @@ export const MIME_EXT = {
   'application/pdf': 'pdf', 'application/zip': 'zip',
 };
 
+// Split a long message into human-sized chunks on natural boundaries (paragraphs → sentences → words).
+// Sending one giant wall of text is a spam/ban signal; real people send several short messages.
+// Returns an array of chunks, each <= max chars. Short messages come back as a single-element array.
+export function splitMessage(text, max = 600) {
+  text = String(text ?? '');
+  if (text.length <= max) return [text];
+  const out = [];
+  let buf = '';
+  const push = () => { const t = buf.trim(); if (t) out.push(t); buf = ''; };
+  const add = (piece, sep) => {
+    if (!buf) buf = piece;
+    else if ((buf + sep + piece).length <= max) buf += sep + piece;
+    else { push(); buf = piece; }
+  };
+  for (const para of text.split(/\n\s*\n/)) {                  // paragraphs first
+    if (para.length <= max) { add(para, '\n\n'); continue; }
+    push();
+    for (let s of para.split(/(?<=[.!?。！？])\s+|\n+/)) {        // then sentences (incl. CJK) / line breaks
+      while (s.length > max) {                                  // a single sentence still too long → wrap on a space, else hard cut
+        let cut = s.lastIndexOf(' ', max);
+        if (cut < max * 0.5) cut = max;
+        out.push(s.slice(0, cut).trim());
+        s = s.slice(cut);
+      }
+      add(s.trim(), ' ');
+    }
+  }
+  push();
+  return out.length ? out : [text.slice(0, max)];
+}
+
 export function pickExt(node, kind) {
   const doc = node.documentMessage;
   if (doc?.fileName && doc.fileName.includes('.')) return doc.fileName.split('.').pop().slice(0, 8);

@@ -182,7 +182,7 @@ switch (cmd) {
       console.error(`→ ${nameForJid(db, to)} (${to})`);
     }
     const out = await api('POST', '/send', { to, message: text, key: idem });
-    if (out.ok) console.log('sent ✓', out.jid, out.id);
+    if (out.ok) console.log('sent ✓', out.jid, out.id, out.chunks > 1 ? `(split into ${out.chunks} messages)` : '');
     else {
       console.error('send failed:', out.error);
       process.exit(1);

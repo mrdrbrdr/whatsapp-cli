@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { unwrap, extract, pickExt, SKIP_TYPES } from '../messages.mjs';
+import { unwrap, extract, pickExt, SKIP_TYPES, splitMessage } from '../messages.mjs';
 
 test('extract: plain text (conversation)', () => {
   assert.deepEqual(extract({ conversation: 'hi' }), { type: 'text', text: 'hi', mediaKind: null });
@@ -79,6 +79,37 @@ test('pickExt: mimetype with codec params is stripped', () => {
 
 test('pickExt: unknown non-media → bin', () => {
   assert.equal(pickExt({ imageMessage: {} }, 'image'), 'bin');
+});
+
+test('splitMessage: short text stays one chunk', () => {
+  assert.deepEqual(splitMessage('hello there', 600), ['hello there']);
+});
+
+test('splitMessage: long text splits, every chunk within max', () => {
+  const para = 'This is a sentence. '.repeat(120); // ~2400 chars
+  const chunks = splitMessage(para, 200);
+  assert.ok(chunks.length > 1);
+  for (const c of chunks) assert.ok(c.length <= 200, `chunk too long: ${c.length}`);
+  // nothing dropped (ignoring whitespace)
+  assert.equal(chunks.join(' ').replace(/\s+/g, ' ').trim(), para.replace(/\s+/g, ' ').trim());
+});
+
+test('splitMessage: prefers paragraph boundaries', () => {
+  const text = 'A'.repeat(100) + '\n\n' + 'B'.repeat(100);
+  const chunks = splitMessage(text, 120);
+  assert.equal(chunks.length, 2);
+  assert.ok(chunks[0].startsWith('A') && chunks[1].startsWith('B'));
+});
+
+test('splitMessage: a single over-long word is hard-wrapped', () => {
+  const chunks = splitMessage('x'.repeat(500), 100);
+  assert.ok(chunks.length >= 5);
+  for (const c of chunks) assert.ok(c.length <= 100);
+});
+
+test('splitMessage: handles empty / null', () => {
+  assert.deepEqual(splitMessage('', 600), ['']);
+  assert.deepEqual(splitMessage(null, 600), ['']);
 });
 
 test('SKIP_TYPES holds protocol/system noise', () => {

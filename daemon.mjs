@@ -25,7 +25,7 @@ import makeWASocket, {
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import { ensureSchema } from './schema.mjs';
-import { SKIP_TYPES, unwrap, extract, pickExt } from './messages.mjs';
+import { SKIP_TYPES, unwrap, extract, pickExt, splitMessage } from './messages.mjs';
 
 // ---------- paths & config ----------
 const DATA_DIR = process.env.WA_CLI_DATA || path.join(os.homedir(), '.local', 'share', 'wa-cli');
@@ -223,6 +223,7 @@ const SEND_MIN_GAP_MS = num(process.env.WA_CLI_SEND_GAP_MS, 5000);    // base mi
 // + a random 0..jitter on top, so the cadence isn't a fixed (bot-detectable) interval. Set to 0 to disable.
 const SEND_JITTER_MS = (() => { const n = Number(process.env.WA_CLI_SEND_JITTER_MS); return Number.isFinite(n) && n >= 0 ? n : 15000; })();
 const SEND_MAX_PER_HOUR = num(process.env.WA_CLI_MAX_PER_HOUR, 60);
+const SEND_CHUNK_MAX = num(process.env.WA_CLI_CHUNK_MAX, 600);        // split messages longer than this into human-sized chunks
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const withTimeout = (p, ms, label) =>
   Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms))]);
@@ -279,15 +280,22 @@ http
             pruneSends.run(now - 3600000);
             if (countSends.get(now - 3600000).c >= SEND_MAX_PER_HOUR)
               return send(429, { ok: false, error: `rate limit: ${SEND_MAX_PER_HOUR} sends/hour (anti-ban guard). Wait, or raise WA_CLI_MAX_PER_HOUR.` });
-            // randomized human-like spacing: base + a fresh random jitter each time (no fixed interval)
-            const target = SEND_MIN_GAP_MS + Math.floor(Math.random() * SEND_JITTER_MS);
-            const gap = target - (Date.now() - lastSendAt);
-            if (gap > 0) await sleep(gap);
-            if (clientGone) return;   // caller disconnected while queued/pacing → don't send (avoids a dup on their retry)
-            lastSendAt = Date.now();
-            logSend.run(lastSendAt);  // count the attempt BEFORE dispatch so a crash mid-send can't undercount the cap
-            const sent = await withTimeout(sock.sendMessage(jid, { text: String(message ?? '') }), 30000, 'send');
-            const result = { ok: true, id: sent?.key?.id, jid };
+            // Send as several human-sized chunks (a single wall of text is a spam/ban signal).
+            const chunks = splitMessage(message, SEND_CHUNK_MAX);
+            let lastId;
+            for (let i = 0; i < chunks.length; i++) {
+              // first chunk: full randomized between-send spacing; later chunks: shorter typing-like delay
+              const wait = i === 0
+                ? SEND_MIN_GAP_MS + Math.floor(Math.random() * SEND_JITTER_MS) - (Date.now() - lastSendAt)
+                : 1500 + Math.floor(Math.random() * 3500);
+              if (wait > 0) await sleep(wait);
+              if (clientGone) break;   // caller gave up → stop (avoids dupes on their retry)
+              lastSendAt = Date.now();
+              logSend.run(lastSendAt);  // count each chunk BEFORE dispatch so a crash can't undercount the cap
+              const sent = await withTimeout(sock.sendMessage(jid, { text: chunks[i] }), 30000, 'send');
+              lastId = sent?.key?.id;
+            }
+            const result = { ok: true, id: lastId, jid, chunks: chunks.length };
             if (idem) idempotency.set(idem, { at: Date.now(), result });
             send(200, result);
           } catch (e) {
