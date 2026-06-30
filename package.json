@@ -14,7 +14,7 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "baileys": "6.7.23",
+    "baileys": "7.0.0-rc13",
     "pino": "^10.0.0",
     "qrcode-terminal": "^0.12.0"
   },

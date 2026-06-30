@@ -180,6 +180,12 @@ agent auto-discovers how to use `wa` properly.
   success (not just that Baileys queued it locally). If it can't confirm within ~12s (degraded
   connection), `wa send` prints `⚠ QUEUED` and **exits 2** — the message may still deliver, so **don't
   blindly resend; retry with `--key`** (idempotent). `wa read` shows ✓ (sent) / ✓✓ (delivered/read) ticks.
+- **Cold outreach is blocked by WhatsApp (error 463).** Messaging a contact who has **never messaged
+  this number** trips WhatsApp's server-side "reach-out time-lock" (anti-spam, stricter on numbers with
+  a prior ban). The send shows `⚠ QUEUED` and **never delivers — no retry fixes it; it is a WhatsApp
+  account restriction, not a tool bug.** Only message **warm** contacts (someone who has written to
+  you). For a brand-new supplier, get them to open the WhatsApp thread first (via Alibaba/email/their
+  link), *then* reply here — their inbound establishes the trust token that lets your reply through.
 - **At-most-once sends** — if you might retry, pass `wa send <who> '…' --key <stable-id>`; the same key
   replays the prior result instead of resending. Sends also time out after 30s so one can't wedge the queue.
 - **Multi-session safe** — one daemon owns the single WhatsApp connection; `wa` callers are thin
@@ -200,6 +206,13 @@ agent auto-discovers how to use `wa` properly.
 - **Import vs live overlap.** If you import a chat the daemon already partly captured, the overlapping
   recent messages can appear twice in `wa read`. This is intentional — the importer does *not*
   auto-dedup against live rows, to avoid ever dropping a legitimately-repeated message.
+- **Cold sends fail with WhatsApp error 463 ("reach-out time-lock").** This is a server-side anti-spam
+  restriction on the *account* — pronounced on numbers with a prior ban — that blocks outbound to
+  recipients who haven't messaged you (no privacy token). The Baileys 7.x upgrade adds LID addressing +
+  privacy-token (tctoken) handling, which is required for these LID-migrated contacts and lets **warm**
+  sends through, but [client measures can't fully bypass](https://github.com/WhiskeySockets/Baileys/issues/2441)
+  the lock. **Autonomous cold outreach from a previously-banned number is not reliable** — warm up
+  contacts first, or use an aged number / the official WhatsApp Business Platform API for outbound.
 
 ## Migrating to an always-on server (future)
 
@@ -223,7 +236,10 @@ which would take down the real WhatsApp account. Keep sends warm and low-volume.
 
 ## Security
 
-- Built on `baileys@6.7.23` (the real `WhiskeySockets/Baileys`, same as the audited mudslide).
+- Built on `baileys@7.0.0-rc13` (the real `WhiskeySockets/Baileys`, same project as the audited
+  mudslide). 7.x is required: WhatsApp migrated accounts to **LID** addressing, which 6.x can't route —
+  on 6.x, sends to LID-migrated contacts silently fail to deliver. The 6.x→7.x bump keeps the existing
+  `auth/` (no re-link needed).
 - The send API binds to `127.0.0.1` only, requires `Content-Type: application/json`, and **rejects any
   request carrying an `Origin`/`Referer` header** — so a malicious web page can't drive it via a
   DNS-rebinding/CSRF attack. (No token: on a single-user machine, local processes already run as you.)

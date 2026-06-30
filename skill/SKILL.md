@@ -44,6 +44,12 @@ is the most ban-prone use, and a ban takes down the real account. So:
 - **`sent ✓` means a real server-ACK** — the daemon waits for WhatsApp to confirm, not just for Baileys
   to queue locally. If it can't confirm within ~12s (degraded link), `wa send` prints `⚠ QUEUED` and
   **exits 2** — don't blindly resend; retry with `--key`. `wa read` shows ✓ / ✓✓ delivery ticks.
+- **Cold contacts are blocked by WhatsApp (error 463).** Sending to anyone who has **never messaged
+  this number** trips WhatsApp's server-side "reach-out time-lock" (anti-spam, worse on numbers with a
+  prior ban). It shows `⚠ QUEUED` and **never delivers — retrying won't help; it's a WhatsApp account
+  restriction, not a tool fault.** Only message **warm** contacts (someone who has written to you). For
+  a new supplier, have them open the WhatsApp thread first (Alibaba/email/their link), *then* reply
+  here. Use `wa read <who>` to check a contact has inbound (their messages) before sending cold.
 - **At-most-once:** if you might retry a send, pass `wa send <who> '…' --key <stable-id>` — the same
   key replays the prior result instead of resending.
 - **Never bulk-blast.** Pace yourself; treat the number as precious.
