@@ -10,6 +10,18 @@ sends through the live connection.
 This is a **separate linked device** from `mudslide` — both can run at once (WhatsApp allows 4
 linked devices). See `~/.claude/docs/whatsapp-cli.md` for the mudslide notes.
 
+## What it's for
+
+This was built to let an **AI agent run procurement autonomously** — sourcing and negotiating with
+overseas (e.g. Chinese) manufacturing suppliers over WhatsApp, where messaging dozens of suppliers and
+tracking every quote, spec sheet, and photo by hand takes forever. The agent reads incoming supplier
+messages straight from the local archive, replies through the live connection (paced to stay under the
+radar), and nothing gets lost across a long sourcing run. It works fine as a plain personal
+read/send/archive tool too — the agent workflow is just what it was shaped around.
+
+> ⚠️ It rides the **unofficial** WhatsApp API, against WhatsApp's ToS. Automated outreach is the most
+> ban-prone use — see the [ban-risk caveat](#ban-risk-caveat). Pace it; don't blast.
+
 ## Why this exists
 
 WhatsApp doesn't keep your history forever (disappearing messages, view-once, no server-side
@@ -83,10 +95,11 @@ wa media [who] [n]        # list saved received-media file paths
 wa tail [who]             # follow new messages live
 ```
 
-**Send rate limit (anti-ban):** sends are serialized, paced at 1.5s minimum spacing, and capped at
-60/hour. The cap is **persisted** (survives daemon restarts) and the pacing/cap hold even under
-concurrent callers. Tune via `WA_CLI_MAX_PER_HOUR` / `WA_CLI_SEND_GAP_MS` on the service; a `429`
-means the cap was hit — back off rather than retrying in a loop.
+**Send rate limit (anti-ban):** sends are serialized and paced with a **randomized human-like spacing**
+(base 5s + up to 15s random jitter — never a fixed, bot-detectable interval), and capped at 60/hour.
+The cap is **persisted** (survives daemon restarts) and the pacing/cap hold even under concurrent
+callers. Tune via `WA_CLI_MAX_PER_HOUR` / `WA_CLI_SEND_GAP_MS` / `WA_CLI_SEND_JITTER_MS` on the service;
+a `429` means the cap was hit — back off rather than retrying in a loop.
 
 `<who>` = `me` · a phone number (`1234567890`) · part of a saved contact/group name (`mom`) · a jid.
 Name matches that are ambiguous list the candidates so you can be specific.

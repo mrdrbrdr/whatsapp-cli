@@ -219,7 +219,9 @@ function resolveJid(to) {
 }
 
 // Anti-ban send guard: pace sends + cap volume so a runaway caller can't get the number banned.
-const SEND_MIN_GAP_MS = num(process.env.WA_CLI_SEND_GAP_MS, 1500);
+const SEND_MIN_GAP_MS = num(process.env.WA_CLI_SEND_GAP_MS, 5000);    // base minimum spacing between sends
+// + a random 0..jitter on top, so the cadence isn't a fixed (bot-detectable) interval. Set to 0 to disable.
+const SEND_JITTER_MS = (() => { const n = Number(process.env.WA_CLI_SEND_JITTER_MS); return Number.isFinite(n) && n >= 0 ? n : 15000; })();
 const SEND_MAX_PER_HOUR = num(process.env.WA_CLI_MAX_PER_HOUR, 60);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const withTimeout = (p, ms, label) =>
@@ -277,7 +279,9 @@ http
             pruneSends.run(now - 3600000);
             if (countSends.get(now - 3600000).c >= SEND_MAX_PER_HOUR)
               return send(429, { ok: false, error: `rate limit: ${SEND_MAX_PER_HOUR} sends/hour (anti-ban guard). Wait, or raise WA_CLI_MAX_PER_HOUR.` });
-            const gap = SEND_MIN_GAP_MS - (Date.now() - lastSendAt);
+            // randomized human-like spacing: base + a fresh random jitter each time (no fixed interval)
+            const target = SEND_MIN_GAP_MS + Math.floor(Math.random() * SEND_JITTER_MS);
+            const gap = target - (Date.now() - lastSendAt);
             if (gap > 0) await sleep(gap);
             if (clientGone) return;   // caller disconnected while queued/pacing → don't send (avoids a dup on their retry)
             lastSendAt = Date.now();
