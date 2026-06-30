@@ -4,3 +4,5 @@ node_modules/
 data/
 *.db
 *.db-*
+# local working notes / bug reports (may cite real numbers) — keep out of the public repo
+BUG-REPORT-*.md

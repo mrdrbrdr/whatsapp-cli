@@ -62,6 +62,7 @@ const upsertContact = db.prepare(`
 `);
 const setMediaPath = db.prepare('UPDATE messages SET media_path=? WHERE id=?');
 const getMediaPath = db.prepare('SELECT media_path FROM messages WHERE id=?');
+const setStatus = db.prepare('UPDATE messages SET status=? WHERE id=?');
 const logSend = db.prepare('INSERT INTO sent_log (ts) VALUES (?)');
 const pruneSends = db.prepare('DELETE FROM sent_log WHERE ts < ?');
 const countSends = db.prepare('SELECT count(*) AS c FROM sent_log WHERE ts >= ?');
@@ -195,7 +196,24 @@ async function start() {
   });
 
   sock.ev.on('messages.upsert', async ({ messages }) => {
-    for (const m of messages) await storeMessage(m, { allowDownload: true });
+    for (const m of messages) {
+      await storeMessage(m, { allowDownload: true });
+      // the fromMe echo carries the send status; status >= 2 (SERVER_ACK) means it actually left this
+      // device (delayed for stuck messages) — this, not sendMessage() resolving, is real confirmation.
+      if (m.key?.fromMe && m.key?.id && typeof m.status === 'number') {
+        if (m.status >= 2) noteServerAck(m.key.id);
+        try { setStatus.run(m.status, `${m.key.remoteJid || ''}|1|${m.key.id}`); } catch {}
+      }
+    }
+  });
+  // later delivery/read transitions (when WhatsApp sends them) refine the stored status
+  sock.ev.on('messages.update', (updates) => {
+    for (const u of updates || []) {
+      const st = u.update?.status;
+      if (st == null || !u.key?.id) continue;
+      if (st >= 2) noteServerAck(u.key.id);
+      try { setStatus.run(st, `${u.key.remoteJid || ''}|${u.key.fromMe ? 1 : 0}|${u.key.id}`); } catch {}
+    }
   });
   sock.ev.on('messaging-history.set', async ({ messages, contacts, chats }) => {
     storeContacts(contacts);
@@ -224,10 +242,32 @@ const SEND_MIN_GAP_MS = num(process.env.WA_CLI_SEND_GAP_MS, 5000);    // base mi
 const SEND_JITTER_MS = (() => { const n = Number(process.env.WA_CLI_SEND_JITTER_MS); return Number.isFinite(n) && n >= 0 ? n : 15000; })();
 const SEND_MAX_PER_HOUR = num(process.env.WA_CLI_MAX_PER_HOUR, 60);
 const SEND_CHUNK_MAX = num(process.env.WA_CLI_CHUNK_MAX, 600);        // split messages longer than this into human-sized chunks
+const ACK_TIMEOUT_MS = num(process.env.WA_CLI_ACK_TIMEOUT_MS, 12000); // how long /send waits for a WhatsApp server ACK before reporting "queued"
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const withTimeout = (p, ms, label) =>
   Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} timed out after ${ms}ms`)), ms))]);
 const idempotency = new Map();   // caller-supplied key -> { at, result }; replays prior result on retry (10-min TTL)
+
+// Server-ACK tracking: sock.sendMessage() resolving only means Baileys QUEUED the message locally; it is
+// NOT proof it reached WhatsApp. We only report success once a 'messages.update' raises the message to
+// SERVER_ACK (status >= 2). Without this, a degraded/zombie socket returns a false "sent ✓".
+const ackWaiters = new Map();    // msgId -> resolve()
+const recentAcks = new Map();    // msgId -> ts (ack that arrived before its waiter registered)
+function noteServerAck(id) {
+  const w = ackWaiters.get(id);
+  if (w) { ackWaiters.delete(id); w(); return; }
+  recentAcks.set(id, Date.now());
+  if (recentAcks.size > 1000) for (const [k, t] of recentAcks) if (Date.now() - t > 60000) recentAcks.delete(k);
+}
+function waitForServerAck(id, timeout) {
+  if (!id) return Promise.resolve(false);
+  if (recentAcks.has(id)) { recentAcks.delete(id); return Promise.resolve(true); }
+  return new Promise((resolve) => {
+    const t = setTimeout(() => { ackWaiters.delete(id); resolve(false); }, timeout);
+    ackWaiters.set(id, () => { clearTimeout(t); resolve(true); });
+  });
+}
+
 let lastSendAt = 0;   // inter-send pacing (in-memory); the hourly cap below is DB-persisted across restarts
 // Serialize all sends through one chain so the cap + pacing hold even under concurrent callers
 // (otherwise parallel requests read the same lastSendAt and burst past the guard).
@@ -282,7 +322,7 @@ http
               return send(429, { ok: false, error: `rate limit: ${SEND_MAX_PER_HOUR} sends/hour (anti-ban guard). Wait, or raise WA_CLI_MAX_PER_HOUR.` });
             // Send as several human-sized chunks (a single wall of text is a spam/ban signal).
             const chunks = splitMessage(message, SEND_CHUNK_MAX);
-            let lastId;
+            let lastId, confirmed = 0;
             for (let i = 0; i < chunks.length; i++) {
               // first chunk: full randomized between-send spacing; later chunks: shorter typing-like delay
               const wait = i === 0
@@ -294,10 +334,17 @@ http
               logSend.run(lastSendAt);  // count each chunk BEFORE dispatch so a crash can't undercount the cap
               const sent = await withTimeout(sock.sendMessage(jid, { text: chunks[i] }), 30000, 'send');
               lastId = sent?.key?.id;
+              // success ONLY once WhatsApp server-acks it — not when Baileys merely queues it locally
+              if (!(await waitForServerAck(lastId, ACK_TIMEOUT_MS))) break;   // degraded → stop, report queued
+              confirmed++;
             }
-            const result = { ok: true, id: lastId, jid, chunks: chunks.length };
+            const ok = chunks.length > 0 && confirmed === chunks.length;
+            const result = ok
+              ? { ok: true, status: 'sent', id: lastId, jid, chunks: chunks.length }
+              : { ok: false, status: 'queued', id: lastId, jid, chunks: chunks.length, confirmed,
+                  error: `not confirmed by WhatsApp within ${Math.round(ACK_TIMEOUT_MS / 1000)}s — connection may be degraded. Queued; may still deliver. Do not blindly resend (use --key).` };
             if (idem) idempotency.set(idem, { at: Date.now(), result });
-            send(200, result);
+            send(ok ? 200 : 202, result);
           } catch (e) {
             send(400, { ok: false, error: e.message });
           }

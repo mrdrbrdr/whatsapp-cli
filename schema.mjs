@@ -14,7 +14,8 @@ export function ensureSchema(db) {
       timestamp  INTEGER,
       type       TEXT,
       text       TEXT,
-      media_path TEXT
+      media_path TEXT,
+      status     INTEGER   -- delivery state for sent msgs: 1 pending · 2 server-ack (left device) · 3 delivered · 4 read
     );
     CREATE INDEX IF NOT EXISTS idx_chat_ts ON messages(chat_jid, timestamp);
     CREATE TABLE IF NOT EXISTS contacts (
@@ -30,4 +31,7 @@ export function ensureSchema(db) {
       ts INTEGER   -- epoch ms of each send; backs the anti-ban hourly cap across restarts
     );
   `);
+  // migrate older DBs that predate the status column (CREATE IF NOT EXISTS won't add it)
+  if (!db.prepare('PRAGMA table_info(messages)').all().some((c) => c.name === 'status'))
+    db.exec('ALTER TABLE messages ADD COLUMN status INTEGER');
 }

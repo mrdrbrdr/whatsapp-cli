@@ -32,6 +32,23 @@ test('ensureSchema enables WAL', () => {
   assert.equal(String(db.prepare('PRAGMA journal_mode').get().journal_mode).toLowerCase(), 'wal');
 });
 
+test('ensureSchema: messages has a status column', () => {
+  const db = freshDb();
+  ensureSchema(db);
+  const cols = db.prepare('PRAGMA table_info(messages)').all().map((c) => c.name);
+  assert.ok(cols.includes('status'));
+});
+
+test('ensureSchema migrates a pre-status DB (adds status, keeps rows)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-mig-'));
+  const db = new DatabaseSync(path.join(dir, 'messages.db'));
+  db.exec('CREATE TABLE messages (id TEXT PRIMARY KEY, chat_jid TEXT, from_me INTEGER, timestamp INTEGER, type TEXT, text TEXT)');
+  db.prepare("INSERT INTO messages (id,chat_jid,from_me,timestamp,type,text) VALUES ('x','c',1,1,'text','hi')").run();
+  ensureSchema(db); // must ALTER-add status without dropping the row
+  assert.ok(db.prepare('PRAGMA table_info(messages)').all().some((c) => c.name === 'status'));
+  assert.equal(db.prepare('SELECT count(*) c FROM messages').get().c, 1);
+});
+
 test('messages.id is the primary key (INSERT OR IGNORE dedups)', () => {
   const db = freshDb();
   ensureSchema(db);

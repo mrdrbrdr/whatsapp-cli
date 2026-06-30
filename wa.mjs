@@ -100,7 +100,8 @@ function renderRow(db, r, { showChat } = {}) {
     ? ` [${r.type} saved: ${r.media_path}]`
     : r.type !== 'text' && r.type !== 'reaction' ? ` [${r.type}]` : '';
   const prefix = showChat ? `${nameForJid(db, r.chat_jid)} | ` : '';
-  return `${when}  ${prefix}${who}: ${r.text || ''}${media}`;
+  const tick = r.from_me ? ({ 1: ' ⌛', 2: ' ✓', 3: ' ✓✓', 4: ' ✓✓' }[r.status] || '') : '';   // pending/sent/delivered/read
+  return `${when}  ${prefix}${who}: ${r.text || ''}${media}${tick}`;
 }
 
 async function api(method, urlPath, body) {
@@ -182,8 +183,13 @@ switch (cmd) {
       console.error(`→ ${nameForJid(db, to)} (${to})`);
     }
     const out = await api('POST', '/send', { to, message: text, key: idem });
-    if (out.ok) console.log('sent ✓', out.jid, out.id, out.chunks > 1 ? `(split into ${out.chunks} messages)` : '');
-    else {
+    if (out.status === 'sent') {
+      console.log('sent ✓', out.jid, out.id, out.chunks > 1 ? `(${out.chunks} messages)` : '');
+    } else if (out.status === 'queued') {
+      console.error(`⚠ QUEUED — NOT confirmed by WhatsApp (id ${out.id}; ${out.confirmed}/${out.chunks} chunks acked).`);
+      console.error(`  ${out.error}`);
+      process.exit(2);   // distinct from 1 (hard failure): queued-but-unconfirmed
+    } else {
       console.error('send failed:', out.error);
       process.exit(1);
     }

@@ -176,6 +176,10 @@ agent auto-discovers how to use `wa` properly.
   `wa chats` / `wa search`, or query `messages` for `timestamp >` your last check.
 - **Sending is guarded** — serialized, paced, and capped (see the rate limit above). A `429` means
   back off, don't retry in a loop. The guard protects the personal number; don't bypass it.
+- **`sent ✓` means confirmed** — the daemon waits for a WhatsApp **server-ACK** before reporting
+  success (not just that Baileys queued it locally). If it can't confirm within ~12s (degraded
+  connection), `wa send` prints `⚠ QUEUED` and **exits 2** — the message may still deliver, so **don't
+  blindly resend; retry with `--key`** (idempotent). `wa read` shows ✓ (sent) / ✓✓ (delivered/read) ticks.
 - **At-most-once sends** — if you might retry, pass `wa send <who> '…' --key <stable-id>`; the same key
   replays the prior result instead of resending. Sends also time out after 30s so one can't wedge the queue.
 - **Multi-session safe** — one daemon owns the single WhatsApp connection; `wa` callers are thin
