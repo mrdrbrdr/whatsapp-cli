@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Always-on WhatsApp read+send CLI (Baileys) with local SQLite archive + received-media capture",
+  "license": "MIT",
   "bin": {
     "wa": "./wa.mjs"
   },
