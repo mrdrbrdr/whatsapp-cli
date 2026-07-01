@@ -183,7 +183,11 @@ switch (cmd) {
       console.error(`→ ${nameForJid(db, to)} (${to})`);
     }
     const out = await api('POST', '/send', { to, message: text, key: idem });
-    if (out.status === 'sent') {
+    if (out.status === 'disabled') {
+      console.error('read-only mode: this wa-cli is receive/archive-only — sending is disabled.');
+      console.error('  ' + (out.error || ''));
+      process.exit(1);
+    } else if (out.status === 'sent') {
       console.log('sent ✓', out.jid, out.id, out.chunks > 1 ? `(${out.chunks} messages)` : '');
     } else if (out.status === 'queued') {
       console.error(`⚠ QUEUED — NOT confirmed by WhatsApp (id ${out.id}; ${out.confirmed}/${out.chunks} chunks acked).`);
@@ -282,8 +286,8 @@ switch (cmd) {
 
   wa chats [n]            list recent conversations (default 20)
   wa read <who> [n]       show last n messages of a conversation (default 30)
-  wa send <who> <text>    send a message (add --key <id> for idempotent retries)
   wa search <term> [n]    find messages containing <term> across all chats
+  wa send <who> <text>    (disabled — read-only build; sending is off to protect the account)
   wa media [who] [n]      list saved received-media files
   wa tail [who]           follow new messages live
   wa status               daemon connection status

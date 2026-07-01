@@ -34,6 +34,10 @@ const MEDIA_DIR = path.join(DATA_DIR, 'media');
 const DB_PATH = path.join(DATA_DIR, 'messages.db');
 const num = (v, def) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : def; };  // reject NaN/<=0 env values
 const PORT = num(process.env.WA_CLI_PORT, 3737);
+// READ-ONLY by default: this build receives + archives + downloads media only. Sending is what risks
+// the account (cold sends trip WhatsApp's 463 "reach-out" lock and can get the number banned), so the
+// /send endpoint is disabled unless explicitly enabled with WA_CLI_ALLOW_SEND=1 on the service.
+const ALLOW_SEND = process.env.WA_CLI_ALLOW_SEND === '1';
 
 for (const d of [DATA_DIR, AUTH_DIR, MEDIA_DIR]) fs.mkdirSync(d, { recursive: true });
 
@@ -288,6 +292,10 @@ http
       return send(200, { connected, user: connected ? sock?.user?.id || null : null });
     }
     if (req.method === 'POST' && req.url === '/send') {
+      // Read-only mode (default): refuse all sends before doing anything else.
+      if (!ALLOW_SEND)
+        return send(403, { ok: false, status: 'disabled',
+          error: 'read-only mode: sending is disabled. This wa-cli receives & archives only. (set WA_CLI_ALLOW_SEND=1 on the wa-cli service to re-enable.)' });
       // CSRF / DNS-rebinding guard: browsers attach Origin/Referer on cross-origin POSTs; the CLI doesn't.
       if (req.headers.origin || req.headers.referer)
         return send(403, { ok: false, error: 'cross-origin requests are not allowed' });
@@ -354,7 +362,7 @@ http
     }
     send(404, { ok: false, error: 'not found' });
   })
-  .listen(PORT, '127.0.0.1', () => info('send API on http://127.0.0.1:' + PORT));
+  .listen(PORT, '127.0.0.1', () => info('API on http://127.0.0.1:' + PORT, ALLOW_SEND ? '(read+send)' : '(READ-ONLY — sending disabled)'));
 
 start().catch((e) => {
   info('initial start failed:', e.message, '— retrying');

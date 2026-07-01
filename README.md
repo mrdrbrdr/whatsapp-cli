@@ -1,26 +1,33 @@
 # whatsapp-cli
 
-Always-on WhatsApp **read + send** from the terminal, with a local archive.
+Always-on WhatsApp **read + archive** from the terminal — a permanent local copy of every message and
+attachment, queryable by you or an AI agent.
 
 A small [Baileys](https://github.com/WhiskeySockets/Baileys) daemon holds a single linked-device
-connection 24/7, archives every message (sent + received) to a local SQLite DB, downloads
-**received** media to disk, and exposes a localhost API. The thin `wa` CLI reads the archive and
-sends through the live connection.
+connection 24/7, archives every message to a local SQLite DB, downloads **received** media to disk, and
+exposes a localhost API. The thin `wa` CLI reads the archive.
+
+> ### 🔒 Read-only by default
+> This build **receives, archives, and downloads media only — it does not send.** Sending is the
+> ban-prone half of the unofficial API (cold sends trip WhatsApp's [error 463 reach-out
+> lock](#limitations--notes) and can get the number restricted/banned), so the send path ships
+> **disabled**. `wa send` is refused and the daemon's `/send` endpoint returns `403 disabled`. Receiving
+> is unaffected — it keeps capturing even while an account restriction is active. To re-enable sending
+> (only worthwhile for **warm** contacts on a healthy number), set `WA_CLI_ALLOW_SEND=1` on the
+> `wa-cli` service.
 
 This is a **separate linked device** from `mudslide` — both can run at once (WhatsApp allows 4
 linked devices). See `~/.claude/docs/whatsapp-cli.md` for the mudslide notes.
 
 ## What it's for
 
-This was built to let an **AI agent run procurement autonomously** — sourcing and negotiating with
-overseas (e.g. Chinese) manufacturing suppliers over WhatsApp, where messaging dozens of suppliers and
-tracking every quote, spec sheet, and photo by hand takes forever. The agent reads incoming supplier
-messages straight from the local archive, replies through the live connection (paced to stay under the
-radar), and nothing gets lost across a long sourcing run. It works fine as a plain personal
-read/send/archive tool too — the agent workflow is just what it was shaped around.
+Give an **AI agent (or you) a total, permanent overview of your WhatsApp conversations** — every
+incoming supplier message, quote, spec sheet, and photo captured locally and searchable, so nothing is
+lost across a long sourcing run and an agent can read the full context of any thread. The agent reads
+straight from the local archive; replies go out from your **primary phone** (this tool doesn't send).
 
-> ⚠️ It rides the **unofficial** WhatsApp API, against WhatsApp's ToS. Automated outreach is the most
-> ban-prone use — see the [ban-risk caveat](#ban-risk-caveat). Pace it; don't blast.
+> ⚠️ Even read-only, it rides the **unofficial** WhatsApp API against WhatsApp's ToS. It's a *linked
+> device*, so an account restriction can pause the link — see the [ban-risk caveat](#ban-risk-caveat).
 
 ## Why this exists
 
@@ -32,8 +39,8 @@ and received files aren't lost.
 
 | File | Role |
 |------|------|
-| `daemon.mjs` | Always-on connection. Archives to SQLite, saves received media, serves the send API. Runs as the `wa-cli` systemd user service. |
-| `wa.mjs` (`wa`) | CLI client. Reads the SQLite archive; sends via the daemon. |
+| `daemon.mjs` | Always-on connection. Archives to SQLite, saves received media, serves a localhost status/API. Read-only by default (`/send` disabled unless `WA_CLI_ALLOW_SEND=1`). Runs as the `wa-cli` systemd user service. |
+| `wa.mjs` (`wa`) | CLI client. Reads the SQLite archive. (`wa send` is disabled in the read-only build.) |
 | `schema.mjs` | Shared SQLite schema (`ensureSchema`) used by both the daemon and the importer (one source of truth). |
 | `messages.mjs` | Pure live-message parsing helpers (`unwrap`/`extract`/`pickExt`), shared by the daemon and the tests. |
 | `import.mjs` | Ingests WhatsApp "Export Chat" archives (iPhone/Android) into the store. |
@@ -91,17 +98,17 @@ wa status                 # daemon connection status
 wa chats                  # recent conversations
 wa read <who> [n]         # last n messages of a conversation (default 30)
 wa search <term> [n]      # find messages containing <term> across all chats
-wa send <who> 'text…'     # send a message
 wa media [who] [n]        # list saved received-media file paths
 wa tail [who]             # follow new messages live
+wa send <who> 'text…'     # DISABLED (read-only build) — refused; reply from your primary phone
 ```
 
-**Send rate limit (anti-ban):** sends are serialized and paced with a **randomized human-like spacing**
-(base 5s + up to 15s random jitter — never a fixed, bot-detectable interval), and capped at 60/hour.
-Long messages are **auto-split into several human-sized messages** (one copy-pasted wall of text is a
-known ban trigger), sent a few seconds apart. The cap is **persisted** (survives daemon restarts) and
-the pacing/cap hold even under concurrent callers. Tune via `WA_CLI_MAX_PER_HOUR` / `WA_CLI_SEND_GAP_MS`
-/ `WA_CLI_SEND_JITTER_MS` / `WA_CLI_CHUNK_MAX`; a `429` means the cap was hit — back off, don't loop.
+**Sending is disabled** in this read-only build (see the note at the top). If re-enabled with
+`WA_CLI_ALLOW_SEND=1`, sends are serialized, paced with randomized human-like spacing (base 5s + up to
+15s jitter), capped at 60/hour (persisted across restarts), auto-split into human-sized chunks, and
+report `sent ✓` only on a real WhatsApp server-ACK. Tune via `WA_CLI_MAX_PER_HOUR` / `WA_CLI_SEND_GAP_MS`
+/ `WA_CLI_SEND_JITTER_MS` / `WA_CLI_CHUNK_MAX`. Even then: **cold sends still fail with error 463** — see
+[Limitations](#limitations--notes).
 
 `<who>` = `me` · a phone number (`1234567890`) · part of a saved contact/group name (`mom`) · a jid.
 Name matches that are ambiguous list the candidates so you can be specific.
@@ -169,29 +176,22 @@ at [`skill/SKILL.md`](skill/SKILL.md)** — copy it to `~/.claude/skills/whatsap
 agent auto-discovers how to use `wa` properly.
 
 - **Run `wa doctor` first** to confirm the daemon is connected before relying on it.
-- **Send like a human** — compose a few short messages rather than one long block. The tool auto-splits
-  long messages into chunks, but write naturally; a wall of text is a spam signal.
+- **This is read-only** — the agent's job is to *read and understand* conversations, not send. `wa send`
+  is disabled; **replies go out from the human's primary phone.** Don't try to send; it won't work and
+  (if re-enabled) risks the account.
 - **Reading is free and safe** — `wa read`/`search`/`chats`/`media` are read-only SQLite queries; any
   number of callers can run concurrently. New inbound lands in the archive on its own; poll with
   `wa chats` / `wa search`, or query `messages` for `timestamp >` your last check.
-- **Sending is guarded** — serialized, paced, and capped (see the rate limit above). A `429` means
-  back off, don't retry in a loop. The guard protects the personal number; don't bypass it.
-- **`sent ✓` means confirmed** — the daemon waits for a WhatsApp **server-ACK** before reporting
-  success (not just that Baileys queued it locally). If it can't confirm within ~12s (degraded
-  connection), `wa send` prints `⚠ QUEUED` and **exits 2** — the message may still deliver, so **don't
-  blindly resend; retry with `--key`** (idempotent). `wa read` shows ✓ (sent) / ✓✓ (delivered/read) ticks.
-- **Cold outreach is blocked by WhatsApp (error 463).** Messaging a contact who has **never messaged
-  this number** trips WhatsApp's server-side "reach-out time-lock" (anti-spam, stricter on numbers with
-  a prior ban). The send shows `⚠ QUEUED` and **never delivers — no retry fixes it; it is a WhatsApp
-  account restriction, not a tool bug.** Only message **warm** contacts (someone who has written to
-  you). For a brand-new supplier, get them to open the WhatsApp thread first (via Alibaba/email/their
-  link), *then* reply here — their inbound establishes the trust token that lets your reply through.
-- **At-most-once sends** — if you might retry, pass `wa send <who> '…' --key <stable-id>`; the same key
-  replays the prior result instead of resending. Sends also time out after 30s so one can't wedge the queue.
+- **Full overview via the DB** — for anything beyond the subcommands (per-contact history, date ranges,
+  aggregation, unread triage), open `~/.local/share/wa-cli/messages.db` **read-only** with Node's
+  `node:sqlite` and query `messages` directly. Attachments are files under `~/.local/share/wa-cli/media/`
+  referenced by `messages.media_path`.
 - **Multi-session safe** — one daemon owns the single WhatsApp connection; `wa` callers are thin
-  clients, so several agent sessions can use it at once without conflict.
-- **Future (not built):** a ~3-minute "settle" debounce before auto-replying, so the agent answers a
-  supplier's *complete* thought rather than each chunk of a string-of-messages.
+  clients, so several agent sessions can read at once without conflict.
+- **If sending is ever re-enabled** (`WA_CLI_ALLOW_SEND=1`): it's paced/capped/auto-chunked and reports
+  `sent ✓` only on a real server-ACK, but **cold sends still fail with WhatsApp error 463** (reach-out
+  lock — see [Limitations](#limitations--notes)). Only message **warm** contacts (who have written to
+  you); let new suppliers open the thread first. Never bulk/cold-blast — that's what gets the number banned.
 
 ## Limitations & notes
 

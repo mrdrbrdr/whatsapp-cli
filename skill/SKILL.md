@@ -1,16 +1,21 @@
 ---
 name: whatsapp
-description: Read, send, search, and archive WhatsApp from the terminal via the `wa` CLI (the always-on wa-cli daemon). Use whenever you need to send or read WhatsApp messages, look through chat history or supplier conversations, find received files/media, or import a WhatsApp "Export Chat" for full past history. Heed the unofficial-API ban-risk caveat before any bulk/cold outreach.
-argument-hint: "[send|read|chats|search|import …]"
+description: Read, search, and archive WhatsApp from the terminal via the `wa` CLI (the always-on wa-cli daemon). Read-only — receives + archives every message and downloads attachments to a local DB for a full conversation overview; it does NOT send (sending is disabled to protect the account). Use whenever you need to read WhatsApp messages, look through chat history or supplier conversations, find received files/media, or import a WhatsApp "Export Chat" for full past history.
+argument-hint: "[read|chats|search|media|import …]"
 ---
 
 # WhatsApp from the terminal (whatsapp-cli)
 
 This machine runs **[whatsapp-cli](https://github.com/mrdrbrdr/whatsapp-cli)** — an always-on daemon
-linked to a WhatsApp account that archives every message to local SQLite, saves received media, and
-serves a localhost send API. The `wa` command (on PATH) is the client. It was built so an agent can run
-**procurement autonomously** with overseas manufacturing suppliers. Everything is local; nothing leaves
-the machine except to WhatsApp.
+linked to a WhatsApp account that archives every message to local SQLite and saves received media. The
+`wa` command (on PATH) is the client. It gives an agent a **complete, permanent, searchable overview of
+the user's WhatsApp conversations** (supplier chats, quotes, spec sheets, photos). Everything is local;
+nothing leaves the machine.
+
+> **🔒 Read-only.** This tool **receives + archives only — it does NOT send.** `wa send` is disabled and
+> the daemon refuses `/send`. Your job is to read/understand threads; **the human replies from their
+> primary phone.** (Sending is the ban-prone part of the unofficial API — a prior cold-send batch got
+> this number's linked devices restricted, so send ships off.)
 
 **Always run `wa doctor` first** to confirm the daemon is up and connected before relying on it.
 
@@ -22,7 +27,6 @@ wa status                 # quick: is the daemon connected?
 wa chats [n]              # recent conversations (default 20)
 wa read <who> [n]         # last n messages of a conversation (default 30)
 wa search <term> [n]      # find messages containing <term> across ALL chats
-wa send <who> 'text…'     # send a message (auto-chunked + paced; see below)
 wa media [who] [n]        # list saved received-media file paths
 wa tail [who]             # follow new messages live
 wa import <path> [--me "Name"] [--jid <jid>] [--mdy] [--replace]   # ingest a WhatsApp "Export Chat"
@@ -31,31 +35,17 @@ wa import <path> [--me "Name"] [--jid <jid>] [--mdy] [--replace]   # ingest a Wh
 `<who>` = `me` · a phone number · part of a saved contact/group name · a jid. Ambiguous name matches
 print candidates — pick a more specific term.
 
-## Sending like a human (anti-ban — read this)
+## Sending is disabled (read-only)
 
-This rides the **unofficial** WhatsApp API (Baileys), against WhatsApp's ToS. Automated/cold outreach
-is the most ban-prone use, and a ban takes down the real account. So:
+`wa send` is turned off in this build — it refuses with a read-only notice, and the daemon returns
+`403 disabled`. **Don't try to send.** If the user wants to reply to someone, tell them what to send and
+have them do it **from their primary phone**; your role is to read and summarise the conversations, not
+to message anyone.
 
-- **Compose like a person.** Prefer a few short messages over one long block. Pasting one giant
-  wall of text is a known ban trigger. (The tool also **auto-splits** anything long into several
-  human-sized messages a few seconds apart, but write naturally anyway.)
-- **Pacing is enforced:** randomized 5–20s spacing between sends, capped at 60/hour, both persisted
-  across restarts. A `429` means the cap was hit — **back off, don't retry in a loop.**
-- **`sent ✓` means a real server-ACK** — the daemon waits for WhatsApp to confirm, not just for Baileys
-  to queue locally. If it can't confirm within ~12s (degraded link), `wa send` prints `⚠ QUEUED` and
-  **exits 2** — don't blindly resend; retry with `--key`. `wa read` shows ✓ / ✓✓ delivery ticks.
-- **Cold contacts are blocked by WhatsApp (error 463).** Sending to anyone who has **never messaged
-  this number** trips WhatsApp's server-side "reach-out time-lock" (anti-spam, worse on numbers with a
-  prior ban). It shows `⚠ QUEUED` and **never delivers — retrying won't help; it's a WhatsApp account
-  restriction, not a tool fault.** Only message **warm** contacts (someone who has written to you). For
-  a new supplier, have them open the WhatsApp thread first (Alibaba/email/their link), *then* reply
-  here. Use `wa read <who>` to check a contact has inbound (their messages) before sending cold.
-- **At-most-once:** if you might retry a send, pass `wa send <who> '…' --key <stable-id>` — the same
-  key replays the prior result instead of resending.
-- **Never bulk-blast.** Pace yourself; treat the number as precious.
-
-Tunables (env on the `wa-cli` service): `WA_CLI_MAX_PER_HOUR`, `WA_CLI_SEND_GAP_MS`,
-`WA_CLI_SEND_JITTER_MS`, `WA_CLI_CHUNK_MAX`.
+*(Why: this rides the unofficial WhatsApp API. Automated/cold sending is what gets the number banned — a
+prior batch already triggered a linked-device restriction. Sending can be re-enabled by the human with
+`WA_CLI_ALLOW_SEND=1` on the `wa-cli` service, and even then cold contacts fail with WhatsApp error 463
+and only warm contacts deliver — but default is off.)*
 
 ## Reading / "what's new"
 
