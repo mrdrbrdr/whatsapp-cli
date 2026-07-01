@@ -295,7 +295,7 @@ http
       // Read-only mode (default): refuse all sends before doing anything else.
       if (!ALLOW_SEND)
         return send(403, { ok: false, status: 'disabled',
-          error: 'read-only mode: sending is disabled. This wa-cli receives & archives only. (set WA_CLI_ALLOW_SEND=1 on the wa-cli service to re-enable.)' });
+          error: 'You are not allowed to send WhatsApp messages. This wa-cli is read-only (receive & archive only) to protect the account. Do not retry — instead give the human the recipient and the exact message text to send from their own phone.' });
       // CSRF / DNS-rebinding guard: browsers attach Origin/Referer on cross-origin POSTs; the CLI doesn't.
       if (req.headers.origin || req.headers.referer)
         return send(403, { ok: false, error: 'cross-origin requests are not allowed' });

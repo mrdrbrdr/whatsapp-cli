@@ -184,8 +184,15 @@ switch (cmd) {
     }
     const out = await api('POST', '/send', { to, message: text, key: idem });
     if (out.status === 'disabled') {
-      console.error('read-only mode: this wa-cli is receive/archive-only — sending is disabled.');
-      console.error('  ' + (out.error || ''));
+      console.error(`⛔ You are NOT allowed to send WhatsApp messages.
+
+This wa-cli is read-only — it reads and archives WhatsApp, but sending is turned off to
+protect the account. Your message was NOT sent, and retrying will not help.
+
+→ Instead, hand the message to the human to send from their own phone. Give them:
+    • the recipient (name / number): ${to}
+    • the exact text to send:
+${text.split('\n').map((l) => '        ' + l).join('\n')}`);
       process.exit(1);
     } else if (out.status === 'sent') {
       console.log('sent ✓', out.jid, out.id, out.chunks > 1 ? `(${out.chunks} messages)` : '');
